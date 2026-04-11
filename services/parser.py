@@ -77,25 +77,41 @@ def clean_comment(text):
 
 
 def parse_semester(text):
-    text = normalize(text)
+    if not text:
+        return {
+            "semester": "unknown",
+            "academic_year": "unknown"
+        }
 
-    hk = re.search(r"học kỳ\s*(\d+)", text)
-    year = re.search(r"(\d{4}\s*-\s*\d{4})", text)
+    text = str(text).lower().strip()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join([c for c in text if not unicodedata.combining(c)])
 
-    if hk and year:
-        return f"{year.group(1)}-{hk.group(1)}"
+    text = re.sub(r"[,.:\n]", " ", text)
+    text = re.sub(r"\s+", " ", text)
 
-    return "unknown"
+    hk_match = re.search(r"hoc\s*ky\s*(\d+)", text)
+    year_match = re.search(r"(\d{4})\s*-\s*(\d{4})", text)
+
+    semester = hk_match.group(1) if hk_match else "unknown"
+    academic_year = (
+        f"{year_match.group(1)}-{year_match.group(2)}"
+        if year_match else "unknown"
+    )
+
+    return {
+        "semester": semester,
+        "academic_year": academic_year
+    }
 
 
 def extract_global_meta(raw_df):
     text = ""
-    for i in range(min(5, len(raw_df))):
+
+    for i in range(min(10, len(raw_df))):
         text += " " + " ".join(raw_df.iloc[i].astype(str).tolist())
 
-    return {
-        "semester": parse_semester(text)
-    }
+    return parse_semester(text)
 
 
 # =========================
@@ -164,6 +180,7 @@ def parse_excel(file, labeled=False):
                     record = {
                         "meta": {
                             "semester": global_meta.get("semester", "unknown"),
+                            "academic_year": global_meta.get("academic_year", "unknown"),
                             "faculty": str(row.get("Khoa", "")).strip(),
                             "course": str(row.get("Môn học", "")).strip(),
                             "class": str(row.get("Lớp", "")).strip(),

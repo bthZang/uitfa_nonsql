@@ -9,25 +9,111 @@ from services.mongo_service import (
 )
 from services.export_service import export_unlabeled_to_csv
 from services.model_service import predict
-from config import collection
+from config import db, collection
+import hashlib
+from datetime import datetime
 
 app = FastAPI()
 
 @app.post("/import")
 async def import_excel(file: UploadFile = File(...)):
     contents = await file.read()
-    records = parse_excel(contents)
-    count = insert_many(records)
 
-    return {"inserted": count}
+    file_hash = calculate_file_hash(contents)
+
+    existing = db.import_files.find_one({"file_hash": file_hash})
+    if existing:
+        return {
+            "message": "File already imported",
+            "file_name": existing.get("file_name"),
+            "total_records": existing.get("total_records", 0)
+        }
+
+    insert_result = db.import_files.insert_one({
+        "file_name": file.filename,
+        "file_hash": file_hash,
+        "status": "PROCESSING",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    })
+
+    try:
+        # parse
+        records = parse_excel(contents)
+
+        # insert data
+        count = insert_many(records)
+
+        # update SUCCESS
+        db.import_files.update_one(
+            {"_id": insert_result.inserted_id},
+            {"$set": {
+                "status": "SUCCESS",
+                "total_records": count,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+
+        return {"inserted": count}
+
+    except Exception as e:
+        # update FAILED
+        db.import_files.update_one(
+            {"_id": insert_result.inserted_id},
+            {"$set": {
+                "status": "FAILED",
+                "error": str(e),
+                "updated_at": datetime.utcnow()
+            }}
+        )
+        raise e
 
 @app.post("/import-labeled")
 async def import_labeled(file: UploadFile = File(...)):
     contents = await file.read()
-    records = parse_excel(contents, labeled=True)
-    count = insert_many(records)
 
-    return {"inserted": count}
+    file_hash = calculate_file_hash(contents)
+
+    existing = db.import_files.find_one({"file_hash": file_hash})
+    if existing:
+        return {
+            "message": "File already imported",
+            "file_name": existing.get("file_name"),
+        }
+
+    insert_result = db.import_files.insert_one({
+        "file_name": file.filename,
+        "file_hash": file_hash,
+        "status": "PROCESSING",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    })
+
+    try:
+        records = parse_excel(contents, labeled=True)
+        count = insert_many(records)
+
+        db.import_files.update_one(
+            {"_id": insert_result.inserted_id},
+            {"$set": {
+                "status": "SUCCESS",
+                "total_records": count,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+
+        return {"inserted": count}
+
+    except Exception as e:
+        db.import_files.update_one(
+            {"_id": insert_result.inserted_id},
+            {"$set": {
+                "status": "FAILED",
+                "error": str(e),
+                "updated_at": datetime.utcnow()
+            }}
+        )
+        raise e
 
 @app.get("/unlabeled")
 def unlabeled(limit: int = 100):
@@ -84,3 +170,6 @@ def stats():
         }
     ]
     return list(collection.aggregate(pipeline))
+
+def calculate_file_hash(content: bytes):
+    return hashlib.md5(content).hexdigest()
