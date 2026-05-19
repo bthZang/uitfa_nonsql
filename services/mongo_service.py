@@ -19,31 +19,31 @@ def update_label(_id, sentiment, aspect):
             }
         }
     )
+
 def query_comments(
     faculty: str = None,
     course: str = None,
     lecturer: str = None,
-    class_name: str = None,
     semester: str = None,
     academic_year: str = None,
+    class_name: str = None,
     cursor: str = None,
     limit: int = 20
 ):
     filter_query = {}
 
-    filters = {
-        "faculty": faculty,
-        "course": course,
-        "lecturer": lecturer,
-        "class": class_name,
-        "semester": semester,
-        "academic_year": academic_year
-    }
-
-    for key, value in filters.items():
-        if value:
-            filter_query[f"meta.{key}"] = value
-
+    if faculty:
+        filter_query["meta.faculty"] = faculty
+    if course:
+        filter_query["meta.course"] = course
+    if lecturer:
+        filter_query["meta.lecturer"] = lecturer
+    if semester:
+        filter_query["meta.semester"] = semester
+    if academic_year:
+        filter_query["meta.academic_year"] = academic_year
+    if class_name:
+        filter_query["meta.class"] = class_name
     if cursor:
         filter_query["_id"] = {"$gt": ObjectId(cursor)}
 
@@ -63,29 +63,41 @@ def query_comments(
     )
 
     for d in docs:
+        current_predict = d.get("predict", {})
 
-        if (
-            not d["status"].get("is_labeled", False)
-            and not d["status"].get("is_predicted", False)
-        ):
+        should_predict = (
+            not d.get("status", {}).get("is_labeled", False)
+            and (
+                not d.get("status", {}).get("is_predicted", False)
+                or current_predict.get("sentiment") in [
+                    None,
+                    "unknown",
+                    "error"
+                ]
+            )
+        )
+
+        if should_predict:
             result = predict(d["content"]["comment"])
 
-            collection.update_one(
-                {"_id": d["_id"]},
-                {
-                    "$set": {
-                        "predict.sentiment": result["sentiment"],
-                        "predict.aspect": result["aspect"],
-                        "status.is_predicted": True
+            if result and result["sentiment"] not in [
+                None,
+                "unknown",
+                "error"
+            ]:
+                collection.update_one(
+                    {"_id": d["_id"]},
+                    {
+                        "$set": {
+                            "predict.sentiment": result["sentiment"],
+                            "predict.aspect": result["aspect"],
+                            "status.is_predicted": True
+                        }
                     }
-                }
-            )
+                )
 
-            d["predict"] = {
-                "sentiment": result["sentiment"],
-                "aspect": result["aspect"]
-            }
-            d["status"]["is_predicted"] = True
+                d["predict"] = result
+                d["status"]["is_predicted"] = True
 
         d["_id"] = str(d["_id"])
 
