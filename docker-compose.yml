@@ -19,6 +19,7 @@ services:
 
   model:
     image: bthzang/uitfa-model:latest
+    platform: linux/amd64
     container_name: model
     ports:
       - "8002:8000"

@@ -3,7 +3,6 @@ from fastapi.responses import FileResponse
 from services.parser import parse_excel
 from services.mongo_service import (
     insert_many,
-    get_unlabeled,
     update_label,
     query_comments
 )
@@ -150,20 +149,22 @@ def get_comments(
     faculty: str = None,
     course: str = None,
     lecturer: str = None,
-    skip: int = 0,
-    limit: int = 20
+    class_name: str = None,
+    semester: str = None,
+    academic_year: str = None,
+    cursor: str = None,
+    limit: int = Query(default=20, le=100)
 ):
-    filter_query = {}
-
-    if faculty:
-        filter_query["meta.faculty"] = faculty
-    if course:
-        filter_query["meta.course"] = course
-    if lecturer:
-        filter_query["meta.lecturer"] = lecturer
-
-    return query_comments(filter_query, skip, limit)
-
+    return query_comments(
+        faculty=faculty,
+        course=course,
+        lecturer=lecturer,
+        class_name=class_name,
+        semester=semester,
+        academic_year=academic_year,
+        cursor=cursor,
+        limit=limit
+    )
 
 @app.get("/stats")
 def stats():
