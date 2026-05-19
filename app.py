@@ -7,7 +7,7 @@ from services.mongo_service import (
     update_label,
     query_comments
 )
-from services.export_service import export_unlabeled_to_csv
+from services.export_service import export_csv
 from services.model_service import predict
 from config import db, collection
 import hashlib
@@ -114,12 +114,6 @@ async def import_labeled(file: UploadFile = File(...)):
             }}
         )
         raise e
-
-@app.get("/unlabeled")
-def unlabeled(limit: int = 100):
-    return get_unlabeled(limit)
-
-
 @app.post("/model/predict")
 def run_model(limit: int = 20):
     docs = collection.find({"status.is_labeled": False}).limit(limit)
@@ -134,9 +128,9 @@ def run_model(limit: int = 20):
 
 
 @app.get("/export")
-def export():
-    file_path = export_unlabeled_to_csv()
-    return FileResponse(file_path, filename="unlabeled.csv")
+def export(mode: str = "labeling"):
+    file_path = export_csv(mode)
+    return FileResponse(file_path, filename=file_path)
 
 
 @app.get("/comments")

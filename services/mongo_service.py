@@ -9,10 +9,17 @@ def insert_many(records):
 
 
 def get_unlabeled(limit=100):
-    return list(collection.find(
-        {"status.is_labeled": False},
-        {"content.comment": 1}
-    ).limit(limit))
+    docs = list(
+        collection.find(
+            {"status.is_labeled": False},
+            {"content.comment": 1}
+        ).limit(limit)
+    )
+
+    for doc in docs:
+        doc["_id"] = str(doc["_id"])
+
+    return docs
 
 
 def update_label(_id, sentiment, aspect):
