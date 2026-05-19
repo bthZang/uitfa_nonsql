@@ -9,6 +9,7 @@ from services.mongo_service import (
 )
 from services.export_service import export_csv
 from services.model_service import predict
+from services.import_service import import_labeled_excel
 from config import db, collection
 import hashlib
 from datetime import datetime
@@ -33,6 +34,7 @@ async def import_excel(file: UploadFile = File(...)):
         "file_name": file.filename,
         "file_hash": file_hash,
         "status": "PROCESSING",
+        "use_case": "raw_import",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     })
@@ -69,49 +71,59 @@ async def import_excel(file: UploadFile = File(...)):
         raise e
 
 @app.post("/import-labeled")
-async def import_labeled(file: UploadFile = File(...)):
+async def import_labeled(
+    file: UploadFile = File(...),
+    mode: str = "update"
+):
     contents = await file.read()
 
     file_hash = calculate_file_hash(contents)
 
-    existing = db.import_files.find_one({"file_hash": file_hash})
-    if existing:
-        return {
-            "message": "File already imported",
-            "file_name": existing.get("file_name"),
-        }
-
     insert_result = db.import_files.insert_one({
         "file_name": file.filename,
         "file_hash": file_hash,
+        "use_case": "labeled_import",
+        "mode": mode,
         "status": "PROCESSING",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     })
 
     try:
-        records = parse_excel(contents, labeled=True)
-        count = insert_many(records)
+        temp_path = "temp_labeled.xlsx"
+
+        with open(temp_path, "wb") as f:
+            f.write(contents)
+
+        result = import_labeled_excel(temp_path, mode)
 
         db.import_files.update_one(
             {"_id": insert_result.inserted_id},
-            {"$set": {
-                "status": "SUCCESS",
-                "total_records": count,
-                "updated_at": datetime.utcnow()
-            }}
+            {
+                "$set": {
+                    "status": "SUCCESS",
+                    "total_records": result["updated"],
+                    "skipped_records": result["skipped"],
+                    "updated_at": datetime.utcnow()
+                }
+            }
         )
 
-        return {"inserted": count}
+        return {
+            "message": "Labeled data imported successfully",
+            **result
+        }
 
     except Exception as e:
         db.import_files.update_one(
             {"_id": insert_result.inserted_id},
-            {"$set": {
-                "status": "FAILED",
-                "error": str(e),
-                "updated_at": datetime.utcnow()
-            }}
+            {
+                "$set": {
+                    "status": "FAILED",
+                    "error": str(e),
+                    "updated_at": datetime.utcnow()
+                }
+            }
         )
         raise e
 @app.post("/model/predict")
